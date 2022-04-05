@@ -29,6 +29,8 @@ import logger from './Logger';
 import { ProcessManager } from './ProcessManager';
 import { ConfigFile, ServerManager } from './ServerManager';
 import { Binder, PipelineProcess, QueueStatus, SingleFileType } from './types';
+import RateLimiter from 'express-rate-limit';
+
 
 export class ApiServer {
   private outputDir: string = path.resolve(`${__dirname}/output`);
@@ -68,14 +70,17 @@ export class ApiServer {
 
   public launchServer(port: number): void {
     const app = express();
-
     // tslint:disable-next-line:variable-name
     const v1_0 = express.Router();
     app.use('/api/v1.0', v1_0);
     app.use('/api/v1', v1_0);
     app.use('/api', v1_0);
 
-    app.get('/', this.handleRoot.bind(this));
+    // set up rate limiter: maximum of 50 requests per minute for simple-json api
+    const limiter = RateLimiter({
+      windowMs: 1*60*1000, // 1 minute
+      max: 50,
+    });
 
     const uploadsConf: multer.Field[] = [
       { name: 'file', maxCount: 1 },
@@ -85,7 +90,7 @@ export class ApiServer {
     v1_0.post('/document', this.upload.fields(uploadsConf), this.handlePostDoc.bind(this));
     v1_0.get('/queue/:id', this.handleGetQueue.bind(this));
     v1_0.get('/json/:id', this.handleGetJson.bind(this));
-    v1_0.get('/simple-json/:id', this.handleGetSimpleJson.bind(this));
+    v1_0.get('/simple-json/:id', limiter, this.handleGetSimpleJson.bind(this));
     v1_0.get('/text/:id', this.handleGetText.bind(this));
     v1_0.get('/confidences/:id', this.handleGetConfidences.bind(this));
     v1_0.get('/csv/:id', this.handleGetCsvList.bind(this));
@@ -262,6 +267,7 @@ export class ApiServer {
           csv: `${req.baseUrl}/csv/${docId}`,
           text: `${req.baseUrl}/text/${docId}`,
           markdown: `${req.baseUrl}/markdown/${docId}`,
+          simplejson: `${req.baseUrl}/simple-json/${docId}`,
         };
 
         res
@@ -353,7 +359,7 @@ export class ApiServer {
   }
 
   private handleGetSimpleJson(req: Request, res: Response): void {
-    this.handleGetFile(req, res, 'simple-json')
+    this.handleGetFile(req, res, 'simple-json');
   }
 
   private handleGetText(req: Request, res: Response): void {
@@ -560,7 +566,7 @@ export class ApiServer {
     if (command) {
       const inputFile =
         fileType.ext === 'pdf' ? binder.input.concat(`[${page - 1}]`) : binder.input;
-      convert = new Promise((resolve, reject) => {
+      convert = new Promise<void>((resolve, reject) => {
         exec([command, '-resize', '200x200', inputFile, filePath].join(' '), err => {
           if (err) {
             return reject(err);
