@@ -20,6 +20,10 @@ RUN apt-get update && \
   pip3 install --upgrade setuptools pip && \
   pip3 install opencv-python ghostscript PyPDF2 camelot-py[cv] numpy pillow scikit-learn==0.23.2 tabula-py
 
+RUN apt-get update && \
+  apt-get install -y --no-install-recommends \
+  openjdk-11-jre
+
 ADD policy.xml /etc/ImageMagick-6/policy.xml
 
 WORKDIR /opt/app-root/src
